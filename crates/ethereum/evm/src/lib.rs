@@ -218,10 +218,42 @@ pub(crate) fn collect_s3_block(ingest_path: PathBuf, height: u64) -> Option<Bloc
     let f = ((height - 1) / 1_000_000) * 1_000_000;
     let s = ((height - 1) / 1_000) * 1_000;
     let path = format!("{}/{f}/{s}/{height}.rmp.lz4", ingest_path.to_string_lossy());
-    let file = std::fs::read(path).ok()?;
+
+    let file = match std::fs::read(&path) {
+        Ok(file) => file,
+        Err(e) => {
+            tracing::debug!("Failed to read S3 block file at {}: {}", path, e);
+            return None;
+        }
+    };
+
     let mut decoder = lz4_flex::frame::FrameDecoder::new(&file[..]);
-    let blocks: Vec<BlockAndReceipts> = rmp_serde::from_read(&mut decoder).unwrap();
-    Some(blocks[0].clone())
+
+    // The S3 files contain the full BlockAndReceipts from the block ingestion format
+    // We need to deserialize it and extract only the precompile calls for the EVM
+    #[derive(serde::Deserialize)]
+    struct FullBlockAndReceipts {
+        #[serde(default)]
+        read_precompile_calls: Vec<(Address, Vec<(ReadPrecompileInput, ReadPrecompileResult)>)>,
+        // We don't need to deserialize the other fields for the EVM
+    }
+
+    let blocks: Vec<FullBlockAndReceipts> = match rmp_serde::from_read(&mut decoder) {
+        Ok(blocks) => blocks,
+        Err(e) => {
+            tracing::debug!("Failed to deserialize S3 block at height {}: {}", height, e);
+            return None;
+        }
+    };
+
+    let full_block = blocks.get(0)?;
+
+    tracing::debug!("Successfully loaded S3 block for height {} with {} precompile calls",
+                   height, full_block.read_precompile_calls.len());
+
+    Some(BlockAndReceipts {
+        read_precompile_calls: full_block.read_precompile_calls.clone(),
+    })
 }
 
 pub(crate) fn get_locally_sourced_precompiles_for_height(
@@ -259,12 +291,23 @@ impl EvmFactory<EvmEnv> for HyperliquidEvmFactory {
     type Context<DB: Database> = EthEvmContext<DB>;
 
     fn create_evm<DB: Database>(&self, db: DB, input: EvmEnv) -> Self::Evm<DB, NoOpInspector> {
+        let ingest_dir = self.ingest_dir.clone()
+            .expect("Ingest directory must be configured for EVM factory");
+
         let block = collect_block(
-            self.ingest_dir.clone().unwrap(),
+            ingest_dir.clone(),
             self.shared_state.clone(),
             input.block_env.number,
         )
-        .expect("Failed to collect a submitted block. If sourcing locally, make sure your local hl-node is producing blocks.");
+        .unwrap_or_else(|| {
+            panic!(
+                "Failed to collect block at height {} from ingest directory {}. \
+                 Check that the S3 block files exist at the expected path. \
+                 If using local ingestion, ensure your local hl-node is producing blocks.",
+                input.block_env.number,
+                ingest_dir.display()
+            );
+        });
         let cache = block.read_precompile_calls;
 
         let evm = Context::mainnet()
