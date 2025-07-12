@@ -282,6 +282,8 @@ impl BlockIngest {
                     let BlockBody { transactions, ommers, withdrawals } =
                         std::mem::take(block.body_mut());
                     let mut system_txs = vec![];
+                    let mut system_gas_used = 0u64;
+                    let mut previous_cumulative_gas = 0u64;
 
                     for transaction in original_block.system_txs {
                         let TypedTransaction::Legacy(tx) = &transaction.tx else {
@@ -320,7 +322,33 @@ impl BlockIngest {
                             Default::default(),
                         );
                         system_txs.push(tx);
+
+                        // Calculate gas used by this system transaction from its receipt
+                        if let Some(receipt) = &transaction.receipt {
+                            // Calculate individual gas usage from cumulative gas usage
+                            let individual_gas_used = receipt.cumulative_gas_used - previous_cumulative_gas;
+                            system_gas_used += individual_gas_used;
+                            previous_cumulative_gas = receipt.cumulative_gas_used;
+                        }
                     }
+
+                    // Adjust the block header's gas_used to exclude system transaction gas
+                    // since system transactions are not counted toward block gas usage during execution
+                    let original_gas_used = block.header().gas_used();
+                    let adjusted_gas_used = original_gas_used.saturating_sub(system_gas_used);
+
+                    if system_gas_used > 0 {
+                        info!(
+                            "Adjusting block gas_used for system transactions: original={}, system_gas={}, adjusted={}",
+                            original_gas_used, system_gas_used, adjusted_gas_used
+                        );
+                    }
+
+                    // Update the block header with the adjusted gas_used
+                    let mut header = block.header().clone();
+                    header.gas_used = adjusted_gas_used;
+                    *block.header_mut() = header;
+
                     let mut txs = vec![];
                     txs.extend(system_txs);
                     txs.extend(transactions);
