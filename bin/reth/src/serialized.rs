@@ -27,6 +27,13 @@ pub(crate) struct LegacyReceipt {
     logs: Vec<Log>,
 }
 
+impl LegacyReceipt {
+    /// Returns the cumulative gas used by this transaction.
+    pub(crate) fn cumulative_gas_used(&self) -> u64 {
+        self.cumulative_gas_used
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum LegacyTxType {
     Legacy = 0,

@@ -326,9 +326,9 @@ impl BlockIngest {
                         // Calculate gas used by this system transaction from its receipt
                         if let Some(receipt) = &transaction.receipt {
                             // Calculate individual gas usage from cumulative gas usage
-                            let individual_gas_used = receipt.cumulative_gas_used - previous_cumulative_gas;
+                            let individual_gas_used = receipt.cumulative_gas_used() - previous_cumulative_gas;
                             system_gas_used += individual_gas_used;
-                            previous_cumulative_gas = receipt.cumulative_gas_used;
+                            previous_cumulative_gas = receipt.cumulative_gas_used();
                         }
                     }
 
