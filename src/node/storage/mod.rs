@@ -20,6 +20,7 @@ use reth_provider::{
 };
 
 pub mod tables;
+pub mod timeout;
 
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]

@@ -52,6 +52,61 @@ pub struct HlNodeArgs {
     /// This is useful when read precompile is needed for gas estimation.
     #[arg(long, env = "FORWARD_CALL")]
     pub forward_call: bool,
+
+    /// Timeout for RPC calls in seconds.
+    ///
+    /// This sets the maximum time an RPC call (eth_call, eth_estimateGas) can run
+    /// before being cancelled to prevent database transaction timeouts.
+    #[arg(long, env = "RPC_CALL_TIMEOUT", default_value = "30")]
+    pub rpc_call_timeout: u64,
+
+    /// Timeout for database read transactions in seconds.
+    ///
+    /// This sets the maximum time a database read transaction can remain open
+    /// before being automatically closed to prevent resource exhaustion.
+    #[arg(long, env = "DB_READ_TIMEOUT", default_value = "60")]
+    pub db_read_timeout: u64,
+
+    /// Maximum gas limit for local RPC calls.
+    ///
+    /// When gas limit exceeds this value, calls will be forwarded to upstream
+    /// if forward_call is enabled, otherwise they will be rejected.
+    #[arg(long, env = "MAX_LOCAL_GAS_LIMIT")]
+    pub max_local_gas_limit: Option<u64>,
+
+    /// Maximum concurrent database operations.
+    ///
+    /// This limits the number of database operations that can run concurrently
+    /// to prevent resource exhaustion and improve stability.
+    #[arg(long, env = "MAX_CONCURRENT_DB_OPS", default_value = "100")]
+    pub max_concurrent_db_ops: u64,
+
+    /// Enable progressive timeout scaling based on gas limit.
+    ///
+    /// When enabled, timeout scales with gas limit to handle very large operations
+    /// like 2B gas calls that need more time to complete.
+    #[arg(long, env = "ENABLE_PROGRESSIVE_TIMEOUT", default_value = "true")]
+    pub enable_progressive_timeout: bool,
+
+    /// Maximum timeout for the largest gas operations in seconds.
+    ///
+    /// This is the upper limit for timeout scaling, used for operations
+    /// approaching 2B gas limit.
+    #[arg(long, env = "MAX_TIMEOUT", default_value = "3600")]
+    pub max_timeout_secs: u64,
+
+    /// Gas limit per chunk for massive operations.
+    ///
+    /// Large operations are broken into chunks of this size to prevent
+    /// long-running database transactions.
+    #[arg(long, env = "CHUNK_GAS_LIMIT", default_value = "50000000")]
+    pub chunk_gas_limit: u64,
+
+    /// Gas threshold to start using chunked execution.
+    ///
+    /// Operations with gas limit above this value will be executed in chunks.
+    #[arg(long, env = "CHUNKING_THRESHOLD", default_value = "100000000")]
+    pub chunking_threshold: u64,
 }
 
 /// The main reth_hl cli interface.

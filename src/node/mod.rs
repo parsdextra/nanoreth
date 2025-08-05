@@ -4,6 +4,7 @@ use crate::{
         pool::HlPoolBuilder,
         primitives::{BlockBody, HlBlock, HlBlockBody, HlPrimitives, TransactionSigned},
         rpc::{
+            chunked_execution::ChunkedExecutionConfig,
             engine_api::{
                 builder::HlEngineApiBuilder, payload::HlPayloadTypes,
                 validator::HlEngineValidatorBuilder,
@@ -52,6 +53,14 @@ pub struct HlNode {
         Arc<Mutex<Option<oneshot::Receiver<BeaconConsensusEngineHandle<HlPayloadTypes>>>>>,
     block_source_config: BlockSourceConfig,
     hl_node_compliant: bool,
+    rpc_call_timeout: u64,
+    max_local_gas_limit: Option<u64>,
+    db_read_timeout: u64,
+    max_concurrent_db_ops: u64,
+    enable_progressive_timeout: bool,
+    max_timeout_secs: u64,
+    chunk_gas_limit: u64,
+    chunking_threshold: u64,
 }
 
 impl HlNode {
@@ -65,9 +74,39 @@ impl HlNode {
                 engine_handle_rx: Arc::new(Mutex::new(Some(rx))),
                 block_source_config,
                 hl_node_compliant,
+                rpc_call_timeout: 30,
+                max_local_gas_limit: None,
+                db_read_timeout: 60,
+                max_concurrent_db_ops: 100,
+                enable_progressive_timeout: true,
+                max_timeout_secs: 3600,
+                chunk_gas_limit: 50_000_000,
+                chunking_threshold: 100_000_000,
             },
             tx,
         )
+    }
+
+    pub fn with_rpc_timeout_config(
+        mut self,
+        rpc_call_timeout: u64,
+        max_local_gas_limit: Option<u64>,
+        db_read_timeout: u64,
+        max_concurrent_db_ops: u64,
+        enable_progressive_timeout: bool,
+        max_timeout_secs: u64,
+        chunk_gas_limit: u64,
+        chunking_threshold: u64,
+    ) -> Self {
+        self.rpc_call_timeout = rpc_call_timeout;
+        self.max_local_gas_limit = max_local_gas_limit;
+        self.db_read_timeout = db_read_timeout;
+        self.max_concurrent_db_ops = max_concurrent_db_ops;
+        self.enable_progressive_timeout = enable_progressive_timeout;
+        self.max_timeout_secs = max_timeout_secs;
+        self.chunk_gas_limit = chunk_gas_limit;
+        self.chunking_threshold = chunking_threshold;
+        self
     }
 }
 
@@ -130,8 +169,21 @@ where
     }
 
     fn add_ons(&self) -> Self::AddOns {
+        let chunked_config = ChunkedExecutionConfig {
+            chunk_gas_limit: self.chunk_gas_limit,
+            chunking_threshold: self.chunking_threshold,
+            ..Default::default()
+        };
+
         HlNodeAddOns::new(
-            HlEthApiBuilder { hl_node_compliant: self.hl_node_compliant },
+            HlEthApiBuilder::default()
+                .with_hl_node_compliant(self.hl_node_compliant)
+                .with_rpc_call_timeout(self.rpc_call_timeout)
+                .with_max_local_gas_limit(self.max_local_gas_limit)
+                .with_db_read_timeout(self.db_read_timeout)
+                .with_max_concurrent_db_ops(self.max_concurrent_db_ops)
+                .with_progressive_timeout(self.enable_progressive_timeout, self.max_timeout_secs)
+                .with_chunked_execution_config(chunked_config),
             Default::default(),
             Default::default(),
             Default::default(),

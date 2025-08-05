@@ -13,6 +13,7 @@ use jsonrpsee::{
 };
 use jsonrpsee_core::{async_trait, client::ClientT, ClientError, RpcResult};
 use reth_rpc_eth_api::helpers::EthCall;
+use crate::node::rpc::timeout::RpcTimeoutExt;
 
 #[rpc(server, namespace = "eth")]
 pub(crate) trait CallForwarderApi {
@@ -80,16 +81,16 @@ where
                     ),
                 })?
         } else {
-            EthCall::call(
-                &self.eth_api,
-                request,
-                block_number,
-                EvmOverrides::new(state_overrides, block_overrides),
-            )
-            .await
-            .map_err(|e| {
-                ErrorObject::owned(INTERNAL_ERROR_CODE, format!("Failed to call: {e:?}"), Some(()))
-            })?
+            // Use timeout wrapper for local calls
+            self.eth_api
+                .timeout_wrapper()
+                .call_with_timeout(
+                    &self.eth_api,
+                    request,
+                    block_number,
+                    EvmOverrides::new(state_overrides, block_overrides),
+                )
+                .await?
         };
 
         Ok(result)
@@ -115,20 +116,16 @@ where
                     ),
                 })?
         } else {
-            EthCall::estimate_gas_at(
-                &self.eth_api,
-                request,
-                block_number.unwrap_or_default(),
-                state_override,
-            )
-            .await
-            .map_err(|e| {
-                ErrorObject::owned(
-                    INTERNAL_ERROR_CODE,
-                    format!("Failed to estimate gas: {e:?}"),
-                    Some(()),
+            // Use timeout wrapper for local gas estimation
+            self.eth_api
+                .timeout_wrapper()
+                .estimate_gas_with_timeout(
+                    &self.eth_api,
+                    request,
+                    block_number.unwrap_or_default(),
+                    state_override,
                 )
-            })?
+                .await?
         };
 
         Ok(result)

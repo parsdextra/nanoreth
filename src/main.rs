@@ -12,6 +12,7 @@ use reth_hl::{
     tx_forwarder::{self, EthForwarderApiServer},
 };
 use tracing::info;
+use std::time::Duration;
 
 // We use jemalloc for performance reasons
 #[cfg(all(feature = "jemalloc", unix))]
@@ -31,7 +32,17 @@ fn main() -> eyre::Result<()> {
         builder.builder.database.create_tables_for::<Tables>()?;
 
         let (node, engine_handle_tx) =
-            HlNode::new(ext.block_source_args.parse().await?, ext.hl_node_compliant);
+            HlNode::new(ext.block_source_args.parse().await?, ext.hl_node_compliant)
+                .with_rpc_timeout_config(
+                    ext.rpc_call_timeout,
+                    ext.max_local_gas_limit,
+                    ext.db_read_timeout,
+                    ext.max_concurrent_db_ops,
+                    ext.enable_progressive_timeout,
+                    ext.max_timeout_secs,
+                    ext.chunk_gas_limit,
+                    ext.chunking_threshold,
+                );
         let NodeHandle { node, node_exit_future: exit_future } = builder
             .node(node)
             .extend_rpc_modules(move |ctx| {

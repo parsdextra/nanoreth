@@ -33,10 +33,15 @@ use reth_rpc_eth_api::{
     EthApiTypes, FromEvmError, RpcConverter, RpcNodeCore, RpcNodeCoreExt,
 };
 use std::{fmt, sync::Arc};
+use timeout::{TimeoutWrapper, RpcTimeoutExt};
+use chunked_execution::ChunkedExecutionConfig;
+use crate::node::storage::timeout::{DatabaseTimeoutWrapper, DatabaseTimeoutExt};
 
 mod block;
 mod call;
+pub mod chunked_execution;
 pub mod engine_api;
+pub mod timeout;
 mod transaction;
 
 /// A helper trait with requirements for [`RpcNodeCore`] to be used in [`HlEthApi`].
@@ -66,11 +71,27 @@ pub struct HlEthApi<N: HlNodeCore> {
     tx_resp_builder: RpcConverter<Ethereum, N::Evm, EthApiError, ()>,
     /// Whether the node is in HL node compliant mode.
     pub(crate) hl_node_compliant: bool,
+    /// Timeout wrapper for RPC calls.
+    pub(crate) timeout_wrapper: TimeoutWrapper,
+    /// Timeout wrapper for database operations.
+    pub(crate) db_timeout_wrapper: DatabaseTimeoutWrapper,
 }
 
 impl<N: HlNodeCore> fmt::Debug for HlEthApi<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HlEthApi").finish_non_exhaustive()
+    }
+}
+
+impl<N: HlNodeCore> RpcTimeoutExt for HlEthApi<N> {
+    fn timeout_wrapper(&self) -> &TimeoutWrapper {
+        &self.timeout_wrapper
+    }
+}
+
+impl<N: HlNodeCore> DatabaseTimeoutExt for HlEthApi<N> {
+    fn db_timeout_wrapper(&self) -> &DatabaseTimeoutWrapper {
+        &self.db_timeout_wrapper
     }
 }
 
@@ -258,11 +279,85 @@ where
 }
 
 /// Builds [`HlEthApi`] for HL.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct HlEthApiBuilder {
     /// Whether the node is in HL node compliant mode.
     pub(crate) hl_node_compliant: bool,
+    /// RPC call timeout in seconds.
+    pub(crate) rpc_call_timeout: u64,
+    /// Maximum gas limit for local calls.
+    pub(crate) max_local_gas_limit: Option<u64>,
+    /// Database read timeout in seconds.
+    pub(crate) db_read_timeout: u64,
+    /// Maximum concurrent database operations.
+    pub(crate) max_concurrent_db_ops: u64,
+    /// Enable progressive timeout scaling.
+    pub(crate) enable_progressive_timeout: bool,
+    /// Maximum timeout for largest operations.
+    pub(crate) max_timeout_secs: u64,
+    /// Chunked execution configuration.
+    pub(crate) chunked_execution_config: ChunkedExecutionConfig,
+}
+
+impl Default for HlEthApiBuilder {
+    fn default() -> Self {
+        Self {
+            hl_node_compliant: false,
+            rpc_call_timeout: 30,
+            max_local_gas_limit: None,
+            db_read_timeout: 60,
+            max_concurrent_db_ops: 100,
+            enable_progressive_timeout: true,
+            max_timeout_secs: 3600,
+            chunked_execution_config: ChunkedExecutionConfig::default(),
+        }
+    }
+}
+
+impl HlEthApiBuilder {
+    /// Set whether the node is in HL node compliant mode.
+    pub fn with_hl_node_compliant(mut self, hl_node_compliant: bool) -> Self {
+        self.hl_node_compliant = hl_node_compliant;
+        self
+    }
+
+    /// Set the RPC call timeout in seconds.
+    pub fn with_rpc_call_timeout(mut self, timeout_secs: u64) -> Self {
+        self.rpc_call_timeout = timeout_secs;
+        self
+    }
+
+    /// Set the maximum gas limit for local calls.
+    pub fn with_max_local_gas_limit(mut self, max_gas: Option<u64>) -> Self {
+        self.max_local_gas_limit = max_gas;
+        self
+    }
+
+    /// Set the database read timeout in seconds.
+    pub fn with_db_read_timeout(mut self, timeout_secs: u64) -> Self {
+        self.db_read_timeout = timeout_secs;
+        self
+    }
+
+    /// Set the maximum concurrent database operations.
+    pub fn with_max_concurrent_db_ops(mut self, max_ops: u64) -> Self {
+        self.max_concurrent_db_ops = max_ops;
+        self
+    }
+
+    /// Set progressive timeout configuration.
+    pub fn with_progressive_timeout(mut self, enable: bool, max_timeout_secs: u64) -> Self {
+        self.enable_progressive_timeout = enable;
+        self.max_timeout_secs = max_timeout_secs;
+        self
+    }
+
+    /// Set chunked execution configuration.
+    pub fn with_chunked_execution_config(mut self, config: ChunkedExecutionConfig) -> Self {
+        self.chunked_execution_config = config;
+        self
+    }
 }
 
 impl<N> EthApiBuilder<N> for HlEthApiBuilder
@@ -288,10 +383,25 @@ where
         .proof_permits(ctx.config.proof_permits)
         .build_inner();
 
+        let timeout_wrapper = TimeoutWrapper::new(
+            self.rpc_call_timeout,
+            self.max_local_gas_limit,
+        ).with_progressive_timeout(
+            self.enable_progressive_timeout,
+            self.max_timeout_secs,
+        ).with_chunked_execution(
+            self.chunked_execution_config.clone(),
+        );
+
+        let db_timeout_wrapper = DatabaseTimeoutWrapper::new(self.db_read_timeout)
+            .with_max_concurrent_operations(self.max_concurrent_db_ops);
+
         Ok(HlEthApi {
             inner: Arc::new(HlEthApiInner { eth_api }),
             tx_resp_builder: Default::default(),
             hl_node_compliant: self.hl_node_compliant,
+            timeout_wrapper,
+            db_timeout_wrapper,
         })
     }
 }
