@@ -166,3 +166,4 @@ client = [
 
 [dev-dependencies]
 tempfile = "3.20.0"
+futures = "0.3"

@@ -12,6 +12,7 @@ use reth_hl::{
     chainspec::{parser::HlChainSpecParser, HlChainSpec},
     node::{
         cli::{Cli, HlNodeArgs},
+        resource_manager::ResourceManager,
         storage::tables::Tables,
         HlNode,
     },
@@ -35,6 +36,24 @@ fn main() -> eyre::Result<()> {
         |builder: WithLaunchContext<NodeBuilder<Arc<DatabaseEnv>, HlChainSpec>>,
          ext: HlNodeArgs| async move {
             let default_upstream_rpc_url = builder.config().chain.official_rpc_url();
+
+            // Create resource manager with configuration from CLI args
+            let blocking_pool_size = if ext.enable_blocking_thread_pool {
+                Some(ext.blocking_thread_pool_size)
+            } else {
+                None
+            };
+            let resource_manager = std::sync::Arc::new(ResourceManager::new(
+                ext.max_concurrent_rpc_requests,
+                blocking_pool_size,
+            ));
+
+            info!(
+                max_concurrent_rpc = ext.max_concurrent_rpc_requests,
+                blocking_pool_enabled = ext.enable_blocking_thread_pool,
+                blocking_pool_size = ext.blocking_thread_pool_size,
+                "Initialized resource manager for RPC operations"
+            );
 
             let (node, engine_handle_tx) = HlNode::new(ext.block_source_args.parse().await?);
             let NodeHandle { node, node_exit_future: exit_future } = builder

@@ -73,6 +73,26 @@ pub struct HlNodeArgs {
     /// * Refers to the Merkle trie used for eth_getProof and state root, not actual state values.
     #[arg(long, env = "EXPERIMENTAL_ETH_GET_PROOF")]
     pub experimental_eth_get_proof: bool,
+
+    /// Maximum number of concurrent RPC requests for resource-intensive operations.
+    ///
+    /// This helps prevent RPC operations from exhausting system resources and blocking
+    /// other operations like S3 syncing. Default: 50
+    #[arg(long, env = "MAX_CONCURRENT_RPC_REQUESTS", default_value = "50")]
+    pub max_concurrent_rpc_requests: usize,
+
+    /// Enable dedicated thread pool for blocking operations.
+    ///
+    /// This creates a separate thread pool for database and other blocking operations
+    /// to prevent them from blocking the async runtime. Default: true
+    #[arg(long, env = "ENABLE_BLOCKING_THREAD_POOL", default_value = "true")]
+    pub enable_blocking_thread_pool: bool,
+
+    /// Number of threads in the blocking thread pool.
+    ///
+    /// Only used when enable_blocking_thread_pool is true. Default: 4
+    #[arg(long, env = "BLOCKING_THREAD_POOL_SIZE", default_value = "4")]
+    pub blocking_thread_pool_size: usize,
 }
 
 /// The main reth_hl cli interface.

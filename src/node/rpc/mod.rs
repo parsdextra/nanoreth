@@ -35,6 +35,7 @@ use crate::chainspec::HlChainSpec;
 
 mod block;
 mod call;
+pub mod enhanced;
 pub mod engine_api;
 mod transaction;
 

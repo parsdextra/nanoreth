@@ -35,6 +35,7 @@ pub mod engine;
 pub mod evm;
 pub mod network;
 pub mod primitives;
+pub mod resource_manager;
 pub mod rpc;
 pub mod spot_meta;
 pub mod storage;
