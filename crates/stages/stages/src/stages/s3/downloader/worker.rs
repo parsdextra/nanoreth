@@ -1,12 +1,27 @@
 use super::error::DownloaderError;
 use reqwest::{header::RANGE, Client};
-use std::path::{Path, PathBuf};
+use std::{path::{Path, PathBuf}, sync::{Arc, OnceLock}};
 use tokio::{
     fs::OpenOptions,
     io::{AsyncSeekExt, AsyncWriteExt, BufWriter},
     sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
 };
 use tracing::debug;
+
+/// Get the dedicated S3 runtime (shared with parent module)
+fn get_s3_runtime() -> Arc<tokio::runtime::Runtime> {
+    static S3_RUNTIME: OnceLock<Arc<tokio::runtime::Runtime>> = OnceLock::new();
+    S3_RUNTIME.get_or_init(|| {
+        Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4) // Dedicated threads for S3 operations
+                .thread_name("s3-worker")
+                .enable_all()
+                .build()
+                .expect("Failed to create S3 runtime")
+        )
+    }).clone()
+}
 
 /// Responses sent by a worker.
 #[derive(Debug)]
@@ -45,7 +60,9 @@ pub(crate) fn spawn_workers(
         let url = url.to_string();
         debug!(target: "sync::stages::s3::downloader", ?worker_id, "Spawning.");
 
-        tokio::spawn(async move {
+        // Use dedicated S3 runtime to isolate from RPC operations
+        let s3_runtime = get_s3_runtime();
+        s3_runtime.spawn(async move {
             if let Err(error) = worker_fetch(worker_id, &orchestrator_tx, data_file, url).await {
                 let _ = orchestrator_tx.send(WorkerResponse::Err { worker_id, error });
             }

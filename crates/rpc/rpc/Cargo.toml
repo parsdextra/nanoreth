@@ -97,5 +97,13 @@ alloy-consensus.workspace = true
 jsonrpsee-types.workspace = true
 jsonrpsee = { workspace = true, features = ["client"] }
 
+# Test and benchmark dependencies
+criterion = "0.5"
+futures = { workspace = true }
+
+[[bench]]
+name = "blocking_mutex_benchmark"
+harness = false
+
 [features]
 js-tracer = ["revm-inspectors/js-tracer", "reth-rpc-eth-types/js-tracer"]

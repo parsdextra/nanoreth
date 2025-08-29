@@ -849,26 +849,28 @@ where
 {
     /// Handler for `debug_getRawHeader`
     async fn raw_header(&self, block_id: BlockId) -> RpcResult<Bytes> {
-        let header = match block_id {
-            BlockId::Hash(hash) => self.provider().header(&hash.into()).to_rpc_result()?,
-            BlockId::Number(number_or_tag) => {
-                let number = self
-                    .provider()
-                    .convert_block_number(number_or_tag)
-                    .to_rpc_result()?
-                    .ok_or_else(|| {
-                    internal_rpc_err("Pending block not supported".to_string())
-                })?;
-                self.provider().header_by_number(number).to_rpc_result()?
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let header = match block_id {
+                BlockId::Hash(hash) => this.provider().header(&hash.into()).to_rpc_result()?,
+                BlockId::Number(number_or_tag) => {
+                    let number = this
+                        .provider()
+                        .convert_block_number(number_or_tag)
+                        .to_rpc_result()?
+                        .ok_or_else(|| {
+                        internal_rpc_err("Pending block not supported".to_string())
+                    })?;
+                    this.provider().header_by_number(number).to_rpc_result()?
+                }
+            };
+
+            let mut res = Vec::new();
+            if let Some(header) = header {
+                header.encode(&mut res);
             }
-        };
-
-        let mut res = Vec::new();
-        if let Some(header) = header {
-            header.encode(&mut res);
-        }
-
-        Ok(res.into())
+            Ok(res.into())
+        }).await.map_err(|_| internal_rpc_err("Blocking task failed".to_string()))?
     }
 
     /// Handler for `debug_getRawBlock`
@@ -895,12 +897,15 @@ where
     /// Handler for `debug_getRawTransactions`
     /// Returns the bytes of the transaction for the given hash.
     async fn raw_transactions(&self, block_id: BlockId) -> RpcResult<Vec<Bytes>> {
-        let block = self
-            .provider()
-            .block_with_senders_by_id(block_id, TransactionVariant::NoHash)
-            .to_rpc_result()?
-            .unwrap_or_default();
-        Ok(block.into_transactions_recovered().map(|tx| tx.encoded_2718().into()).collect())
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let block = this
+                .provider()
+                .block_with_senders_by_id(block_id, TransactionVariant::NoHash)
+                .to_rpc_result()?
+                .unwrap_or_default();
+            Ok(block.into_transactions_recovered().map(|tx| tx.encoded_2718().into()).collect())
+        }).await.map_err(|_| internal_rpc_err("Blocking task failed".to_string()))?
     }
 
     /// Handler for `debug_getRawReceipts`
@@ -1043,7 +1048,10 @@ where
     }
 
     async fn debug_chain_config(&self) -> RpcResult<ChainConfig> {
-        Ok(self.provider().chain_spec().genesis().config.clone())
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || {
+            Ok(this.provider().chain_spec().genesis().config.clone())
+        }).await.map_err(|_| internal_rpc_err("Blocking task failed".to_string()))?
     }
 
     async fn debug_chaindb_property(&self, _property: String) -> RpcResult<()> {

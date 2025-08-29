@@ -27,6 +27,10 @@ where
     /// Showcasing how to implement a custom rpc method
     /// using the provider.
     fn custom_method(&self) -> EthResult<Option<Block>> {
+        // Note: This is a synchronous method, but in a real async RPC implementation,
+        // database operations should be wrapped in spawn_blocking to avoid blocking
+        // the async runtime. For example:
+        // tokio::task::spawn_blocking(move || self.provider.block_by_number(0)).await?
         let block = self.provider.block_by_number(0)?;
         Ok(block)
     }

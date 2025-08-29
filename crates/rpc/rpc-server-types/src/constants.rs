@@ -18,16 +18,21 @@ pub const DEFAULT_MAX_LOGS_PER_RESPONSE: usize = 20_000;
 /// The default maximum number tracing requests we're allowing concurrently.
 /// Tracing is mostly CPU bound so we're limiting the number of concurrent requests to something
 /// lower that the number of cores, in order to minimize the impact on the rest of the system.
+///
+/// Updated to be more generous to prevent blocking S3 syncing and other operations when RPC is under heavy load.
 pub fn default_max_tracing_requests() -> usize {
-    // We reserve 2 cores for the rest of the system
-    const RESERVED: usize = 2;
+    // We reserve 1 core for the rest of the system (reduced from 2 to allow more concurrency)
+    const RESERVED: usize = 1;
+    // Minimum concurrent requests increased to handle higher load
+    const MIN_CONCURRENT: usize = 50;
 
     std::thread::available_parallelism()
-        .map_or(25, |cpus| max(cpus.get().saturating_sub(RESERVED), RESERVED))
+        .map_or(MIN_CONCURRENT, |cpus| max(cpus.get().saturating_sub(RESERVED).saturating_mul(2), MIN_CONCURRENT))
 }
 
 /// The default number of getproof calls we are allowing to run concurrently.
-pub const DEFAULT_PROOF_PERMITS: usize = 25;
+/// Increased to prevent blocking other operations when proof requests are under heavy load.
+pub const DEFAULT_PROOF_PERMITS: usize = 100;
 
 /// The default IPC endpoint
 #[cfg(windows)]

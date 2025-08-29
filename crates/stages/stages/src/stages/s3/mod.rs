@@ -15,12 +15,32 @@ use reth_stages_api::{
 };
 use std::{
     path::PathBuf,
+    sync::{Arc, OnceLock},
     task::{ready, Context, Poll},
 };
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
 /// S3 `StageId`
 const S3_STAGE_ID: StageId = StageId::Other("S3");
+
+/// Dedicated runtime for S3 operations to isolate them from RPC operations
+static S3_RUNTIME: OnceLock<Arc<tokio::runtime::Runtime>> = OnceLock::new();
+
+/// Get or create the dedicated S3 runtime
+fn get_s3_runtime() -> Arc<tokio::runtime::Runtime> {
+    S3_RUNTIME.get_or_init(|| {
+        Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4) // Dedicated threads for S3 operations
+                .thread_name("s3-worker")
+                .enable_all()
+                .build()
+                .expect("Failed to create S3 runtime")
+        )
+    }).clone()
+}
+
+
 
 /// The S3 stage.
 #[derive(Default, Debug)]
@@ -175,7 +195,9 @@ impl S3Stage {
         let max_concurrent_requests = self.max_concurrent_requests;
 
         let (fetch_tx, fetch_rx) = unbounded_channel();
-        tokio::spawn(async move {
+        // Use dedicated S3 runtime to isolate from RPC operations
+        let s3_runtime = get_s3_runtime();
+        s3_runtime.spawn(async move {
             let mut requests_iter = requests.into_iter().peekable();
 
             while let Some((_, file_requests)) = requests_iter.next() {
